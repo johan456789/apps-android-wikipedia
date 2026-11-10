@@ -80,6 +80,7 @@ import org.wikipedia.edit.EditHandler
 import org.wikipedia.gallery.GalleryActivity
 import org.wikipedia.history.HistoryEntry
 import org.wikipedia.json.JsonUtil
+import org.wikipedia.language.LangLinksPrefetcher
 import org.wikipedia.login.LoginActivity
 import org.wikipedia.main.MainActivity
 import org.wikipedia.media.AvPlayer
@@ -1065,6 +1066,11 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
         pageRefreshed = isRefresh
         references = null
         revision = 0
+        // Start prefetching the language links for this page in the background, so that
+        // the language list opens instantly when requested.
+        if (app.isOnline) {
+            LangLinksPrefetcher.prefetchAsync(title)
+        }
         pageFragmentLoadState.load(pushBackStack)
         scrollTriggerListener.stagedScrollY = stagedScrollY
     }
