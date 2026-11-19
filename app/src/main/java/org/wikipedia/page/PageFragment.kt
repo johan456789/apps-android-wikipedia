@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.ActionMode
 import android.view.ActionProvider
 import android.view.Gravity
@@ -778,6 +779,7 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
                 return@addListener
             }
             bridge.onPcsReady()
+            L.d("PageLoadTiming: final_setup reached " + (SystemClock.elapsedRealtime() - model.loadStartElapsedRealtime) + "ms after loadPage")
             articleInteractionEvent?.logLoaded()
             callback()?.onPageLoadComplete()
 
@@ -1054,6 +1056,7 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
         errorState = false
         binding.pageError.visibility = View.GONE
         model.title = title
+        model.loadStartElapsedRealtime = SystemClock.elapsedRealtime()
         model.pendingHighlightText = highlightText
         model.curEntry = entry
         model.page = null

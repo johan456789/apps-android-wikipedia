@@ -1,5 +1,6 @@
 package org.wikipedia.dataclient.okhttp
 
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -57,9 +58,16 @@ abstract class OkHttpWebViewClient : WebViewClient() {
             if (shouldLogLatency) {
                 WikipediaApp.instance.appSessionEvent.pageFetchStart()
             }
+            val fetchStart = if (shouldLogLatency) SystemClock.elapsedRealtime() else 0L
             val rsp = request(request)
-            if (rsp.networkResponse != null && shouldLogLatency) {
-                WikipediaApp.instance.appSessionEvent.pageFetchEnd()
+            if (shouldLogLatency) {
+                val networkResponse = rsp.networkResponse
+                if (networkResponse != null) {
+                    WikipediaApp.instance.appSessionEvent.pageFetchEnd()
+                    L.d("PageLoadTiming: mobile-html network fetch took " + (SystemClock.elapsedRealtime() - fetchStart) + "ms (code " + networkResponse.code + ")")
+                } else {
+                    L.d("PageLoadTiming: mobile-html served from OkHttp cache")
+                }
             }
             val contentType = rsp.header(HEADER_CONTENT_TYPE).orEmpty()
             response = if (contentType.startsWith("audio") || contentType.startsWith("video")) {
