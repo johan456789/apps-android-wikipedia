@@ -91,3 +91,13 @@ Classes and packages are organized roughly by "feature":
 - Do NOT include dependency updates, localization updates, or static data updates.
 - Release notes should be terse, but understandable by a general audience.
 - Release notes must be a single paragraph of natural, friendly text. It should NOT be a list of bullet points.
+
+## Fork maintenance
+
+- This repository is a fork of `wikimedia/apps-android-wikipedia`, not a hard fork. The `main` branch mirrors upstream (fast-forward only); fork-specific work lives on the `myfork` branch.
+- Keep `myfork` up to date by MERGING upstream release tags, NOT by rebasing. Rebasing would rewrite the branch's published history and require force-pushes; merges keep commit SHAs stable.
+  - Fetch upstream release tags into a namespaced local view: `git fetch upstream 'refs/tags/*:refs/tags/upstream/*'`
+  - The release tags are named `upstream/r/<versionCode>-r-<date>` (e.g. `upstream/r/50619-r-2026-11-18`); `upstream/latest` does NOT track the newest release, so ignore it.
+  - Sync: `git checkout myfork && git merge upstream/r/<newest-release-tag>` (default cadence), or merge a newer upstream tip off-schedule when a specific fix is needed.
+  - Run `./gradlew assembleDevDebug` after every merge, since fork-specific code may break against upstream changes.
+- Rebase is reserved for short-lived feature branches: rebase them onto `myfork` before merging them in.
