@@ -1,0 +1,34 @@
+name: CI
+
+# Thin caller for johan456789/ci-templates. All CI logic lives upstream.
+#
+# Builds a signed dev-flavor APK, and attaches it to a GitHub Release when a
+# `v*` tag is pushed (versionCode tracks upstream releases; the tag carries a
+# fork marker). `main` stays a fast-forward-only upstream mirror, so the
+# branch trigger watches `myfork` instead.
+on:
+  push:
+    branches: [myfork]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  android:
+    # The called workflow's release job requests contents: write to create the
+    # release. A caller cannot be granted less than the callee asks for, so the
+    # repo's read-only default token would fail the run at startup.
+    permissions:
+      contents: write
+    uses: johan456789/ci-templates/.github/workflows/app-android.yml@v1
+    with:
+      # Multi-flavor app: the dev flavor (org.wikipedia.dev) is the one meant
+      # for running on local devices, and its app id doesn't collide with the
+      # production Wikipedia app when sideloading.
+      gradle_task: assembleDevRelease
+    # By name, not `inherit`: the template gets only these. They live in the
+    # `release` environment, so only the release job (on v* tags) sees them.
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
