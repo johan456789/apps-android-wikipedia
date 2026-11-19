@@ -13,6 +13,7 @@ import android.view.ActionProvider
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
+import android.view.MotionEvent
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
@@ -194,6 +195,8 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
     lateinit var shareHandler: ShareHandler
     lateinit var editHandler: EditHandler
     var revision = 0L
+    private var userTouchedSinceLoad = false
+    private var suppressArticleLoadEvent = false
 
     private val shouldCreateNewTab get() = currentTab.backStack.isNotEmpty()
     private val backgroundTabPosition get() = 0.coerceAtLeast(foregroundTabPosition - 1)
@@ -250,6 +253,13 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
                 bridge.execute(JavaScriptActionHandler.appendReadMode(model))
                 model.isReadMoreLoaded = true
             }
+        }
+
+        webView.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                userTouchedSinceLoad = true
+            }
+            false
         }
 
         editHandler = EditHandler(this, bridge)
@@ -780,7 +790,11 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
             }
             bridge.onPcsReady()
             L.d("PageLoadTiming: final_setup reached " + (SystemClock.elapsedRealtime() - model.loadStartElapsedRealtime) + "ms after loadPage")
-            articleInteractionEvent?.logLoaded()
+            if (suppressArticleLoadEvent) {
+                suppressArticleLoadEvent = false
+            } else {
+                articleInteractionEvent?.logLoaded()
+            }
             callback()?.onPageLoadComplete()
 
             JsonUtil.decodeFromElement<PageMetadata>(payload)?.let { metadata ->
@@ -1062,6 +1076,8 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
         model.page = null
         model.readingListPage = null
         model.forceNetwork = isRefresh
+        userTouchedSinceLoad = false
+        suppressArticleLoadEvent = false
         webView.visibility = View.VISIBLE
         binding.pageActionsTabLayout.visibility = View.VISIBLE
         binding.pageActionsTabLayout.enableAllTabs()
@@ -1074,6 +1090,9 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
         if (app.isOnline) {
             LangLinksPrefetcher.prefetchAsync(title)
         }
+        // If a prefetch of this article's HTML (from the link preview) is still in flight, cancel
+        // it; the WebView fetch below will populate the cache itself.
+        ArticleHtmlPrefetcher.cancelInFlight(title)
         pageFragmentLoadState.load(pushBackStack)
         scrollTriggerListener.stagedScrollY = stagedScrollY
     }
@@ -1249,6 +1268,33 @@ class PageFragment : Fragment(), BackPressedHandler, CommunicationBridge.Communi
                 loadPage(title, entry, false, stagedScrollY, app.isOnline)
             }
         }
+    }
+
+    fun onArticleUpdateAvailable() {
+        if (!isAdded || errorState || model.forceNetwork || bridge.isLoading) {
+            return
+        }
+        // Only swap the content silently if the user hasn't started reading yet; otherwise
+        // offer a non-intruous refresh instead of yanking the page out from under them.
+        if (!userTouchedSinceLoad && webView.scrollY == 0) {
+            reloadArticleWithUpdatedContent()
+        } else {
+            FeedbackUtil.makeSnackbar(requireActivity(), getString(R.string.page_updated_snackbar), Snackbar.LENGTH_LONG)
+                    .setAction(getString(R.string.page_updated_snackbar_action)) { reloadArticleWithUpdatedContent() }
+                    .show()
+        }
+    }
+
+    private fun reloadArticleWithUpdatedContent() {
+        val title = model.title ?: return
+        // The freshly revalidated HTML is already in the OkHttp cache, so this reload is served
+        // from cache immediately. The full load pipeline doesn't run again, so re-push the
+        // metadata-driven JS (top margin and footer) alongside the pending message queue.
+        suppressArticleLoadEvent = true
+        bridge.resetHtml(title)
+        bridge.onMetadataReady()
+        bridge.execute(JavaScriptActionHandler.setTopMargin(leadImagesHandler.topMargin))
+        bridge.execute(JavaScriptActionHandler.setFooter(model))
     }
 
    private fun clearActivityActionBarTitle() {

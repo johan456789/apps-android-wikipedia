@@ -13,6 +13,7 @@ import org.wikipedia.auth.AccountUtil
 import org.wikipedia.database.AppDatabase
 import org.wikipedia.dataclient.ServiceFactory
 import org.wikipedia.history.HistoryEntry
+import org.wikipedia.page.ArticleHtmlPrefetcher
 import org.wikipedia.page.PageTitle
 import org.wikipedia.settings.Prefs
 import org.wikipedia.util.log.L
@@ -61,6 +62,10 @@ class LinkPreviewViewModel(savedStateHandle: SavedStateHandle) : ViewModel() {
             } else if (!oldFragment.isNullOrEmpty()) {
                 pageTitle.fragment = oldFragment
             }
+
+            // Start prefetching the article's HTML now, so that tapping "Read article" loads it
+            // from cache immediately.
+            ArticleHtmlPrefetcher.prefetchAsync(pageTitle)
 
             if (fromPlaces) {
                 isWatched = watchedCall.await()?.query?.firstPage()?.watched ?: false

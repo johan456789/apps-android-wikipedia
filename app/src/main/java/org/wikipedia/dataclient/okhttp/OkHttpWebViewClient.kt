@@ -62,6 +62,7 @@ abstract class OkHttpWebViewClient : WebViewClient() {
             val rsp = request(request)
             if (shouldLogLatency) {
                 val networkResponse = rsp.networkResponse
+                model.onHtmlResponseServed(networkResponse == null)
                 if (networkResponse != null) {
                     WikipediaApp.instance.appSessionEvent.pageFetchEnd()
                     L.d("PageLoadTiming: mobile-html network fetch took " + (SystemClock.elapsedRealtime() - fetchStart) + "ms (code " + networkResponse.code + ")")
@@ -84,6 +85,9 @@ abstract class OkHttpWebViewClient : WebViewClient() {
                     rsp.body?.byteStream())
             }
         } catch (e: Exception) {
+            if (request.url.encodedPath?.contains(RestService.PAGE_HTML_ENDPOINT) == true) {
+                model.onHtmlResponseServed(false)
+            }
             val reasonCode = if (e.message.isNullOrEmpty()) "Unknown error" else UriUtil.encodeURL(e.message!!)
             response = if (e is HttpStatusException) {
                 WebResourceResponse(null, null, e.code, reasonCode, null, null)

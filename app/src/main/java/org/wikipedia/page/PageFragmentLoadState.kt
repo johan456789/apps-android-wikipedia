@@ -3,10 +3,14 @@ package org.wikipedia.page
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Request
 import org.wikipedia.R
 import org.wikipedia.WikipediaApp
 import org.wikipedia.analytics.eventplatform.ArticleLinkPreviewInteractionEvent
@@ -15,10 +19,12 @@ import org.wikipedia.bridge.CommunicationBridge
 import org.wikipedia.bridge.JavaScriptActionHandler
 import org.wikipedia.categories.db.Category
 import org.wikipedia.database.AppDatabase
+import org.wikipedia.dataclient.RestService
 import org.wikipedia.dataclient.ServiceFactory
 import org.wikipedia.dataclient.mwapi.MwNotLoggedInException
 import org.wikipedia.dataclient.mwapi.MwQueryResponse
 import org.wikipedia.dataclient.okhttp.OfflineCacheInterceptor
+import org.wikipedia.dataclient.okhttp.OkHttpConnectionFactory
 import org.wikipedia.dataclient.page.PageSummary
 import org.wikipedia.history.HistoryEntry
 import org.wikipedia.notifications.AnonymousNotificationHelper
@@ -43,6 +49,8 @@ class PageFragmentLoadState(private var model: PageViewModel,
                             private var leadImagesHandler: LeadImagesHandler,
                             private var currentTab: Tab) {
     private var pageLoadJob: Job? = null
+
+    private val htmlServedTimeoutMs = 20_000L
 
     fun load(pushBackStack: Boolean) {
         if (pushBackStack && model.title != null && model.curEntry != null) {
@@ -134,6 +142,8 @@ class PageFragmentLoadState(private var model: PageViewModel,
             }
             val title = model.title!!
             model.readingListPage = AppDatabase.instance.readingListPageDao().findPageInAnyList(title)
+            model.resetHtmlServedSignal()
+            launch(Dispatchers.IO) { revalidateArticleHtml(title) }
 
             fragment.updateQuickActionsAndMenuOptions()
             fragment.requireActivity().invalidateOptionsMenu()
@@ -219,6 +229,41 @@ class PageFragmentLoadState(private var model: PageViewModel,
             if (AnonymousNotificationHelper.shouldCheckAnonNotifications(watchedResponse)) {
                 checkAnonNotifications(title)
             }
+        }
+    }
+
+    /**
+     * If the article's HTML was served to the WebView from the OkHttp cache (stale-while-revalidate),
+     * revalidate it against the network in the background. If it has changed since the cached copy
+     * was stored, fetch the fresh HTML into the cache and let the fragment decide how to surface it.
+     */
+    private suspend fun revalidateArticleHtml(title: PageTitle) {
+        val servedFromCache = withTimeoutOrNull(htmlServedTimeoutMs) { model.awaitHtmlServedFromCache() }
+        if (servedFromCache != true || !WikipediaApp.instance.isOnline) {
+            return
+        }
+        try {
+            val request = Request.Builder()
+                    .url(ServiceFactory.getRestBasePath(title.wikiSite) +
+                            RestService.PAGE_HTML_ENDPOINT + UriUtil.encodeURL(title.prefixedText))
+                    // Match the headers the WebView request sent, so that OkHttp's vary check
+                    // passes and we get a cheap conditional revalidation instead of a full fetch.
+                    .header("Accept-Language", WikipediaApp.instance.getAcceptLanguage(title.wikiSite))
+                    .build()
+            OkHttpConnectionFactory.client.newCall(request).execute().use { response ->
+                val networkResponse = response.networkResponse
+                if (networkResponse != null && networkResponse.code == 200) {
+                    // The article changed since the cached copy was stored; drain the body so the
+                    // fresh HTML lands in the cache, then let the fragment surface the update.
+                    response.body?.bytes()
+                    L.d("PageLoadTiming: revalidation found updated article")
+                    withContext(Dispatchers.Main) { fragment.onArticleUpdateAvailable() }
+                } else {
+                    L.d("PageLoadTiming: revalidation found article unchanged (code " + (networkResponse?.code ?: response.code) + ")")
+                }
+            }
+        } catch (t: Throwable) {
+            L.e(t)
         }
     }
 
